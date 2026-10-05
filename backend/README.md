@@ -58,12 +58,12 @@ Documentación interactiva: http://localhost:8000/docs.
 
 ## Railway: preparación antes de publicar
 
-No se aplicaron cambios a Railway ni a sus datos.
+La publicación configura el backend y frontend en Railway y aplica la migración inicial tras respaldar la base.
 
 - Backend: conservar `DATABASE_URL` de Railway; configurar `STOCKCORE_API_KEY` con una clave de producción
   y `FRONTEND_URL=https://stock.jaureguitosistemas.com` (admite varios orígenes separados por coma).
 - Crear un respaldo de la base de producción antes de migrarla.
-- Configurar un paso de pre-despliegue: `python -m alembic upgrade head` dentro de `backend`.
+- Paso de pre-despliegue configurado en Railway: `python -m alembic upgrade head` dentro de `backend`.
 - Mantener `uvicorn main:app --host 0.0.0.0 --port $PORT` y healthcheck `/health`.
 - Frontend: `REACT_APP_API_URL=https://backend-production-1a6e5.up.railway.app`.
 - Nunca configurar la clave de acceso como variable `REACT_APP_*`: sería pública en el navegador.
