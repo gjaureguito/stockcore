@@ -94,3 +94,15 @@ activo y el tipo de motivo. El nombre y motivo se guardan también como una copi
 histórica para conservar lo que se registró aunque el catálogo cambie.
 La migración 0002 conserva los movimientos anteriores con sus textos originales.
 Los filtros de la interfaz se aplican a los últimos 100 movimientos cargados.
+
+## Empresas y retirantes
+
+En Configuración se administran empresas externas y destinatarios/retirantes. Un
+retirante sin empresa externa pertenece a nuestra empresa. Ambos catálogos permiten
+editar y desactivar; no se borran registros vinculados al historial.
+En las salidas, recipient_id y reference (remito/referencia) son opcionales. El
+responsible_id identifica al responsable interno, separado de quien recibe. Las
+entradas rechazan retirantes y referencias de retiro. Se validan retirante y empresa
+activos. Nombre del retirante y empresa se guardan como copia histórica.
+Rutas: /api/recipient-companies y /api/recipients (GET/POST y PUT /{id}).
+La migración 0003 agrega campos sin alterar saldos ni movimientos anteriores.

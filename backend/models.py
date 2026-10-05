@@ -48,6 +48,10 @@ class StockMovement(Base):
     warehouse_id = Column(Integer, ForeignKey('warehouses.id', ondelete='RESTRICT'), nullable=False, index=True)
     kind = Column(String(10), nullable=False)
     quantity = Column(Numeric(14, 3), nullable=False)
+    recipient_id = Column(Integer, ForeignKey('recipients.id', ondelete='RESTRICT'))
+    recipient_name = Column(String(120))
+    recipient_company = Column(String(120))
+    reference = Column(String(120), nullable=False, default='')
     reason_id = Column(Integer, ForeignKey('movement_reasons.id', ondelete='RESTRICT'))
     responsible_id = Column(Integer, ForeignKey('responsibles.id', ondelete='RESTRICT'))
     reason = Column(String(250), nullable=False)
@@ -68,4 +72,17 @@ class Responsible(Base):
     name = Column(String(120), nullable=False)
     employee_code = Column(String(64), unique=True, nullable=False)
     sector = Column(String(120), nullable=False, default='')
+    active = Column(Boolean, nullable=False, default=True)
+
+class RecipientCompany(Base):
+    __tablename__ = 'recipient_companies'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(120), unique=True, nullable=False)
+    active = Column(Boolean, nullable=False, default=True)
+
+class Recipient(Base):
+    __tablename__ = 'recipients'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(120), nullable=False)
+    company_id = Column(Integer, ForeignKey('recipient_companies.id', ondelete='RESTRICT'))
     active = Column(Boolean, nullable=False, default=True)

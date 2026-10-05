@@ -8,8 +8,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from database import get_session
-from models import Category, Company, Product, StockBalance, StockMovement, Warehouse, MovementReason, Responsible
-from schemas import MovementInput, Named, ProductInput, WarehouseInput, ReasonInput, ResponsibleInput
+from models import Category, Company, Product, StockBalance, StockMovement, Warehouse, MovementReason, Responsible, RecipientCompany, Recipient
+from schemas import MovementInput, Named, ProductInput, WarehouseInput, ReasonInput, ResponsibleInput, RecipientCompanyInput, RecipientInput
 
 app = FastAPI(title='StockCore API', version='0.2.0')
 origins = ['http://localhost:3000', 'http://localhost']
@@ -125,7 +125,7 @@ def stock(warehouse_id: int | None = None, db: Session = Depends(get_session)):
     return {'stock': [{'product_id': p.id, 'sku': p.sku, 'product': p.name, 'warehouse_id': w.id,
         'warehouse': w.name, 'quantity': b.quantity} for b, p, w in db.execute(statement.order_by(Warehouse.name, Product.name))]}
 
-movement_fields = ['id', 'request_id', 'product_id', 'warehouse_id', 'kind', 'quantity', 'reason', 'operator', 'reason_id', 'responsible_id', 'created_at']
+movement_fields = ['id', 'request_id', 'product_id', 'warehouse_id', 'kind', 'quantity', 'reason', 'operator', 'reason_id', 'responsible_id', 'recipient_id', 'recipient_name', 'recipient_company', 'reference', 'created_at']
 
 reason_fields = ['id', 'name', 'kind', 'active']
 responsible_fields = ['id', 'name', 'employee_code', 'sector', 'active']
@@ -168,6 +168,51 @@ def update_responsible(responsible_id: int, data: ResponsibleInput, db: Session 
     db.commit()
     return record(item, responsible_fields)
 
+recipient_company_fields = ['id', 'name', 'active']
+recipient_fields = ['id', 'name', 'company_id', 'active']
+
+@app.get('/api/recipient-companies', dependencies=auth)
+def recipient_companies(db: Session = Depends(get_session)):
+    return {'recipient_companies': [record(x, recipient_company_fields) for x in db.scalars(select(RecipientCompany).order_by(RecipientCompany.name))]}
+
+@app.post('/api/recipient-companies', status_code=201, dependencies=auth)
+def create_recipient_company(data: RecipientCompanyInput, db: Session = Depends(get_session)):
+    item = RecipientCompany(**data.model_dump())
+    db.add(item)
+    db.commit()
+    return record(item, recipient_company_fields)
+
+@app.put('/api/recipient-companies/{company_id}', dependencies=auth)
+def update_recipient_company(company_id: int, data: RecipientCompanyInput, db: Session = Depends(get_session)):
+    item = require(db, RecipientCompany, company_id)
+    for key, value in data.model_dump().items():
+        setattr(item, key, value)
+    db.commit()
+    return record(item, recipient_company_fields)
+
+@app.get('/api/recipients', dependencies=auth)
+def recipients(db: Session = Depends(get_session)):
+    return {'recipients': [record(x, recipient_fields) for x in db.scalars(select(Recipient).order_by(Recipient.name))]}
+
+@app.post('/api/recipients', status_code=201, dependencies=auth)
+def create_recipient(data: RecipientInput, db: Session = Depends(get_session)):
+    if data.company_id:
+        require(db, RecipientCompany, data.company_id)
+    item = Recipient(**data.model_dump())
+    db.add(item)
+    db.commit()
+    return record(item, recipient_fields)
+
+@app.put('/api/recipients/{recipient_id}', dependencies=auth)
+def update_recipient(recipient_id: int, data: RecipientInput, db: Session = Depends(get_session)):
+    item = require(db, Recipient, recipient_id)
+    if data.company_id:
+        require(db, RecipientCompany, data.company_id)
+    for key, value in data.model_dump().items():
+        setattr(item, key, value)
+    db.commit()
+    return record(item, recipient_fields)
+
 @app.get('/api/movements', dependencies=auth)
 def movements(limit: int = 100, offset: int = 0, db: Session = Depends(get_session)):
     if not 1 <= limit <= 500 or offset < 0:
@@ -200,6 +245,18 @@ def create_movement(data: MovementInput, db: Session = Depends(get_session)):
     # Preserve the labels as they were when the movement was recorded.
     values['reason'] = reason.name
     values['operator'] = responsible.name
+    if data.kind != 'exit' and (data.recipient_id is not None or data.reference):
+        raise HTTPException(422, 'El retirante y el remito se registran solamente en salidas.')
+    if data.recipient_id:
+        recipient = require(db, Recipient, data.recipient_id)
+        if not recipient.active:
+            raise HTTPException(422, 'El retirante debe estar activo.')
+        company = require(db, RecipientCompany, recipient.company_id) if recipient.company_id else require(db, Company, 1)
+        if recipient.company_id and not company.active:
+            raise HTTPException(422, 'La empresa del retirante debe estar activa.')
+        values['recipient_name'] = recipient.name
+        values['recipient_company'] = company.name
+
     balance = db.get(StockBalance, (data.product_id, data.warehouse_id))
     current = balance.quantity if balance else Decimal('0')
     result = current + data.quantity if data.kind == 'entry' else current - data.quantity

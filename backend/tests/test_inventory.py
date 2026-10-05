@@ -160,3 +160,27 @@ def test_migration_preserves_legacy_history(tmp_path):
         assert tuple(row) == ('Motivo anterior', 'Persona anterior', None, None)
         assert connection.exec_driver_sql('SELECT quantity FROM stock_balances').scalar() == 5
     engine.dispose()
+
+def test_external_recipient_and_company_history(inventory):
+    client, factory, engine = inventory
+    p, w = setup(client)
+    company = client.post('/api/recipient-companies', json={'name': 'Contratista de prueba'}).json()
+    person = client.post('/api/recipients', json={'name': 'Retirante de prueba', 'company_id': company['id']}).json()
+    assert client.post('/api/movements', json=payload(p, w, quantity='20')).status_code == 200
+    data = {**payload(p, w, 'exit', '2'), 'recipient_id': person['id'], 'reference': 'R-001'}
+    first = client.post('/api/movements', json=data)
+    assert first.status_code == 200
+    assert first.json()['recipient_company'] == 'Contratista de prueba'
+    assert first.json()['operator'] == 'Operador'
+    client.put(f"/api/recipient-companies/{company['id']}", json={'name': 'Otro nombre', 'active': False})
+    client.put(f"/api/recipients/{person['id']}", json={'name': 'Otro retirante', 'company_id': company['id'], 'active': False})
+    assert client.post('/api/movements', json=data).json()['id'] == first.json()['id']
+    assert client.post('/api/movements', json={**data, 'request_id': str(uuid4())}).status_code == 422
+    old = client.get('/api/movements').json()['movements'][0]
+    assert old['recipient_name'] == 'Retirante de prueba' and old['recipient_company'] == 'Contratista de prueba'
+    assert old['reference'] == 'R-001'
+    assert client.post('/api/movements', json={**payload(p, w), 'recipient_id': person['id']}).status_code == 422
+    assert client.post('/api/movements', json={**payload(p, w, 'exit'), 'recipient_id': 999}).status_code == 404
+    internal = client.post('/api/recipients', json={'name': 'Retirante interno'}).json()
+    response = client.post('/api/movements', json={**payload(p, w, 'exit', '1'), 'recipient_id': internal['id']})
+    assert response.status_code == 200 and response.json()['recipient_company'] == 'Mi empresa'

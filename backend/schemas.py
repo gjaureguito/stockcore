@@ -30,6 +30,8 @@ class MovementInput(Input):
     quantity: Decimal = Field(gt=0, max_digits=14, decimal_places=3)
     reason_id: int = Field(gt=0)
     responsible_id: int = Field(gt=0)
+    recipient_id: int | None = Field(default=None, gt=0)
+    reference: str = Field(default="", max_length=120)
 
 class ReasonInput(Named):
     kind: Literal['entry', 'exit', 'both']
@@ -44,3 +46,10 @@ class ResponsibleInput(Named):
     @classmethod
     def uppercase_code(cls, value):
         return value.upper()
+
+class RecipientCompanyInput(Named):
+    active: bool = True
+
+class RecipientInput(Named):
+    company_id: int | None = Field(default=None, gt=0)
+    active: bool = True
