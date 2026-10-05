@@ -28,5 +28,19 @@ class MovementInput(Input):
     warehouse_id: int = Field(gt=0)
     kind: Literal['entry', 'exit']
     quantity: Decimal = Field(gt=0, max_digits=14, decimal_places=3)
-    reason: str = Field(min_length=1, max_length=250)
-    operator: str = Field(min_length=1, max_length=120)
+    reason_id: int = Field(gt=0)
+    responsible_id: int = Field(gt=0)
+
+class ReasonInput(Named):
+    kind: Literal['entry', 'exit', 'both']
+    active: bool = True
+
+class ResponsibleInput(Named):
+    employee_code: str = Field(min_length=1, max_length=64)
+    sector: str = Field(default='', max_length=120)
+    active: bool = True
+
+    @field_validator('employee_code')
+    @classmethod
+    def uppercase_code(cls, value):
+        return value.upper()

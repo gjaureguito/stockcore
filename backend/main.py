@@ -8,8 +8,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from database import get_session
-from models import Category, Company, Product, StockBalance, StockMovement, Warehouse
-from schemas import MovementInput, Named, ProductInput, WarehouseInput
+from models import Category, Company, Product, StockBalance, StockMovement, Warehouse, MovementReason, Responsible
+from schemas import MovementInput, Named, ProductInput, WarehouseInput, ReasonInput, ResponsibleInput
 
 app = FastAPI(title='StockCore API', version='0.2.0')
 origins = ['http://localhost:3000', 'http://localhost']
@@ -125,7 +125,48 @@ def stock(warehouse_id: int | None = None, db: Session = Depends(get_session)):
     return {'stock': [{'product_id': p.id, 'sku': p.sku, 'product': p.name, 'warehouse_id': w.id,
         'warehouse': w.name, 'quantity': b.quantity} for b, p, w in db.execute(statement.order_by(Warehouse.name, Product.name))]}
 
-movement_fields = ['id', 'request_id', 'product_id', 'warehouse_id', 'kind', 'quantity', 'reason', 'operator', 'created_at']
+movement_fields = ['id', 'request_id', 'product_id', 'warehouse_id', 'kind', 'quantity', 'reason', 'operator', 'reason_id', 'responsible_id', 'created_at']
+
+reason_fields = ['id', 'name', 'kind', 'active']
+responsible_fields = ['id', 'name', 'employee_code', 'sector', 'active']
+
+@app.get('/api/reasons', dependencies=auth)
+def reasons(db: Session = Depends(get_session)):
+    return {'reasons': [record(x, reason_fields) for x in db.scalars(select(MovementReason).order_by(MovementReason.name))]}
+
+@app.post('/api/reasons', status_code=201, dependencies=auth)
+def create_reason(data: ReasonInput, db: Session = Depends(get_session)):
+    item = MovementReason(**data.model_dump())
+    db.add(item)
+    db.commit()
+    return record(item, reason_fields)
+
+@app.put('/api/reasons/{reason_id}', dependencies=auth)
+def update_reason(reason_id: int, data: ReasonInput, db: Session = Depends(get_session)):
+    item = require(db, MovementReason, reason_id)
+    for key, value in data.model_dump().items():
+        setattr(item, key, value)
+    db.commit()
+    return record(item, reason_fields)
+
+@app.get('/api/responsibles', dependencies=auth)
+def responsibles(db: Session = Depends(get_session)):
+    return {'responsibles': [record(x, responsible_fields) for x in db.scalars(select(Responsible).order_by(Responsible.name, Responsible.employee_code))]}
+
+@app.post('/api/responsibles', status_code=201, dependencies=auth)
+def create_responsible(data: ResponsibleInput, db: Session = Depends(get_session)):
+    item = Responsible(**data.model_dump())
+    db.add(item)
+    db.commit()
+    return record(item, responsible_fields)
+
+@app.put('/api/responsibles/{responsible_id}', dependencies=auth)
+def update_responsible(responsible_id: int, data: ResponsibleInput, db: Session = Depends(get_session)):
+    item = require(db, Responsible, responsible_id)
+    for key, value in data.model_dump().items():
+        setattr(item, key, value)
+    db.commit()
+    return record(item, responsible_fields)
 
 @app.get('/api/movements', dependencies=auth)
 def movements(limit: int = 100, offset: int = 0, db: Session = Depends(get_session)):
@@ -150,6 +191,15 @@ def create_movement(data: MovementInput, db: Session = Depends(get_session)):
         if any(getattr(existing, key) != value for key, value in values.items()):
             raise HTTPException(409, 'Esta solicitud ya fue usada para otro movimiento.')
         return record(existing, movement_fields)
+    reason = require(db, MovementReason, data.reason_id)
+    responsible = require(db, Responsible, data.responsible_id)
+    if not reason.active or not responsible.active:
+        raise HTTPException(422, 'El motivo y el responsable deben estar activos.')
+    if reason.kind not in ('both', data.kind):
+        raise HTTPException(422, 'El motivo no corresponde al tipo de movimiento.')
+    # Preserve the labels as they were when the movement was recorded.
+    values['reason'] = reason.name
+    values['operator'] = responsible.name
     balance = db.get(StockBalance, (data.product_id, data.warehouse_id))
     current = balance.quantity if balance else Decimal('0')
     result = current + data.quantity if data.kind == 'entry' else current - data.quantity

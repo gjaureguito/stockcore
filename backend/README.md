@@ -83,3 +83,14 @@ No usar la base de desarrollo ni producción para esta variable.
 
 Para nuevas migraciones: `python -m alembic revision --autogenerate -m "descripcion"`,
 revisar el resultado y ejecutar `python -m alembic upgrade head`.
+
+## Motivos y responsables
+
+Configuración permite crear y editar motivos (entrada, salida o ambos) y responsables
+(nombre, legajo único y sector), y desactivarlos sin eliminar su historial.
+`/api/reasons` y `/api/responsibles`: GET/POST; `/{id}`: PUT.
+Los nuevos movimientos requieren `reason_id` y `responsible_id`; se valida su estado
+activo y el tipo de motivo. El nombre y motivo se guardan también como una copia
+histórica para conservar lo que se registró aunque el catálogo cambie.
+La migración 0002 conserva los movimientos anteriores con sus textos originales.
+Los filtros de la interfaz se aplican a los últimos 100 movimientos cargados.

@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint, func
 from database import Base
 
 class Company(Base):
@@ -48,6 +48,24 @@ class StockMovement(Base):
     warehouse_id = Column(Integer, ForeignKey('warehouses.id', ondelete='RESTRICT'), nullable=False, index=True)
     kind = Column(String(10), nullable=False)
     quantity = Column(Numeric(14, 3), nullable=False)
+    reason_id = Column(Integer, ForeignKey('movement_reasons.id', ondelete='RESTRICT'))
+    responsible_id = Column(Integer, ForeignKey('responsibles.id', ondelete='RESTRICT'))
     reason = Column(String(250), nullable=False)
     operator = Column(String(120), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+class MovementReason(Base):
+    __tablename__ = 'movement_reasons'
+    __table_args__ = (CheckConstraint("kind IN ('entry', 'exit', 'both')", name='reason_kind'),)
+    id = Column(Integer, primary_key=True)
+    name = Column(String(120), unique=True, nullable=False)
+    kind = Column(String(10), nullable=False)
+    active = Column(Boolean, nullable=False, default=True)
+
+class Responsible(Base):
+    __tablename__ = 'responsibles'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(120), nullable=False)
+    employee_code = Column(String(64), unique=True, nullable=False)
+    sector = Column(String(120), nullable=False, default='')
+    active = Column(Boolean, nullable=False, default=True)

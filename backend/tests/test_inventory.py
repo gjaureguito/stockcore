@@ -54,11 +54,12 @@ def setup(client):
     assert p.status_code == 201
     w = client.post('/api/warehouses', json={'name': 'Principal', 'address': 'San Juan'})
     assert w.status_code == 201
+    client.post('/api/responsibles', json={'name': 'Operador', 'employee_code': 'TEST-1', 'sector': 'Pruebas'})
     return p.json()['id'], w.json()['id']
 
 def payload(p, w, kind='entry', quantity='10.125'):
     return {'request_id': str(uuid4()), 'product_id': p, 'warehouse_id': w,
-            'kind': kind, 'quantity': quantity, 'reason': 'Prueba', 'operator': 'Operador'}
+            'kind': kind, 'quantity': quantity, 'reason_id': 8, 'responsible_id': 1}
 
 def test_persistence_idempotency_and_insufficient_stock(inventory):
     client, factory, engine = inventory
@@ -123,3 +124,39 @@ def test_concurrent_first_entries_and_retries(inventory):
     with factory() as db:
         assert db.get(StockBalance, (p, w)).quantity == 5
         assert db.scalar(select(func.count()).select_from(StockMovement)) == 1
+
+def test_catalog_validation_and_historical_snapshots(inventory):
+    client, factory, engine = inventory
+    p, w = setup(client)
+    data = payload(p, w)
+    first = client.post('/api/movements', json=data)
+    assert first.status_code == 200
+    assert first.json()['reason'] == 'Ajuste de inventario'
+    reason = client.get('/api/reasons').json()['reasons']
+    reason = next(x for x in reason if x['id'] == 8)
+    person = client.get('/api/responsibles').json()['responsibles'][0]
+    assert client.put('/api/reasons/8', json={**{k:v for k,v in reason.items() if k != 'id'}, 'name': 'Ajuste nuevo', 'active': False}).status_code == 200
+    assert client.put('/api/responsibles/1', json={**{k:v for k,v in person.items() if k != 'id'}, 'name': 'Nombre nuevo', 'active': False}).status_code == 200
+    assert client.post('/api/movements', json=data).json()['id'] == first.json()['id']
+    assert client.post('/api/movements', json=payload(p, w)).status_code == 422
+    old = client.get('/api/movements').json()['movements'][0]
+    assert old['reason'] == 'Ajuste de inventario' and old['operator'] == 'Operador'
+    assert client.post('/api/movements', json={**payload(p, w), 'reason_id': 999}).status_code == 404
+    client.put('/api/responsibles/1', json={k:v for k,v in person.items() if k != 'id'})
+    assert client.post('/api/movements', json={**payload(p, w, 'exit'), 'reason_id': 1}).status_code == 422
+
+def test_migration_preserves_legacy_history(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
+    config = Config('alembic.ini')
+    with engine.begin() as connection:
+        config.attributes['connection'] = connection
+        command.upgrade(config, '0001_inventory')
+        connection.exec_driver_sql("INSERT INTO warehouses (id,name,address) VALUES (1,'Principal','')")
+        connection.exec_driver_sql("INSERT INTO products (id,sku,name,price) VALUES (1,'LEGACY','Producto',10)")
+        connection.exec_driver_sql("INSERT INTO stock_balances (product_id,warehouse_id,quantity) VALUES (1,1,5)")
+        connection.exec_driver_sql("INSERT INTO stock_movements (request_id,product_id,warehouse_id,kind,quantity,reason,operator) VALUES ('legacy',1,1,'entry',5,'Motivo anterior','Persona anterior')")
+        command.upgrade(config, 'head')
+        row = connection.exec_driver_sql('SELECT reason,operator,reason_id,responsible_id FROM stock_movements').one()
+        assert tuple(row) == ('Motivo anterior', 'Persona anterior', None, None)
+        assert connection.exec_driver_sql('SELECT quantity FROM stock_balances').scalar() == 5
+    engine.dispose()
